@@ -69,7 +69,7 @@ class WebSocketTransport:
         # Keep server running
         await self.server.wait_closed()
     
-    async def _handle_client_connection(self, websocket, path):
+    async def _handle_client_connection(self, websocket):
         """Handle a new client connection"""
         client_id = str(uuid.uuid4())
         client = WebSocketClient(id=client_id, websocket=websocket)

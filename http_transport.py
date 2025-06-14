@@ -66,6 +66,7 @@ class HTTPTransport:
     
     def _setup_cors(self):
         """Setup CORS for web browser access"""
+        @web.middleware
         async def cors_handler(request, handler):
             response = await handler(request)
             response.headers['Access-Control-Allow-Origin'] = '*'

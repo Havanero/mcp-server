@@ -138,8 +138,15 @@ class PluginManager:
                 
                 # Check for conflicts with traditional tools
                 if name in self.loaded_tools:
-                    logging.warning(f"⚠️  Tool name conflict: {name} (decorator vs traditional)")
-                    continue
+                    existing_tool = self.loaded_tools[name]
+                    # Only warn if it's actually a different tool, not the same one detected twice
+                    if existing_tool is not tool:
+                        logging.warning(f"⚠️  Tool name conflict: {name} (decorator vs traditional)")
+                        continue
+                    else:
+                        # Same tool detected twice, just skip silently
+                        logging.debug(f"  Tool {name} already loaded, skipping duplicate")
+                        continue
                 
                 self.loaded_tools[name] = tool
                 logging.info(f"  ✓ Loaded decorator tool: {name}")
@@ -149,7 +156,7 @@ class PluginManager:
                 self.failed_plugins.append(f"decorator:{name}")
     
     def _find_tool_classes(self, module: Any) -> List[Type[BaseTool]]:
-        """Find all BaseTool subclasses in a module"""
+        """Find all BaseTool subclasses in a module that aren't already decorator tools"""
         tool_classes = []
         
         for name in dir(module):
@@ -160,10 +167,12 @@ class PluginManager:
                 issubclass(obj, BaseTool) and 
                 obj is not BaseTool):
                 
-                # Skip classes that were created by @mcp_tool decorator
-                # (they'll be handled by decorator registry)
-                if not hasattr(obj, '_decorator_created'):
-                    tool_classes.append(obj)
+                # Skip classes that have @mcp_tool decorator (already handled by decorator system)
+                if hasattr(obj, '_mcp_tool_decorated'):
+                    logging.debug(f"  Skipping {obj.__name__} - decorated with @mcp_tool")
+                    continue
+                
+                tool_classes.append(obj)
         
         return tool_classes
     

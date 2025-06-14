@@ -183,7 +183,7 @@ def mcp_tool(name: str, description: str, auto_register: bool = True):
     
     Usage:
         @mcp_tool("calculator", "Basic math operations")
-        class Calculator:
+        class Calculator(BaseTool):  # Must inherit from BaseTool
             async def execute(self, operation: str, a: float, b: float) -> ToolResult:
                 ...
     """
@@ -191,15 +191,14 @@ def mcp_tool(name: str, description: str, auto_register: bool = True):
         # Add name and description as class attributes
         cls.name = name
         cls.description = description
+        cls._mcp_tool_decorated = True  # Mark as decorator tool
         
         # Ensure it inherits from BaseTool
         if not issubclass(cls, BaseTool):
-            # Create a new class that inherits from both BaseTool and the original class
-            class ToolClass(BaseTool, cls):
-                pass
-            ToolClass.__name__ = cls.__name__
-            ToolClass.__qualname__ = cls.__qualname__
-            cls = ToolClass
+            raise ValueError(
+                f"Class {cls.__name__} must inherit from BaseTool when using @mcp_tool decorator.\n"
+                f"Change 'class {cls.__name__}:' to 'class {cls.__name__}(BaseTool):'"
+            )
         
         # Auto-register if requested
         if auto_register:
@@ -330,7 +329,7 @@ if __name__ == "__main__":
     
     # Example 2: Class-based tool
     @mcp_tool("math", "Basic math operations")
-    class MathTool:
+    class MathTool(BaseTool):
         async def execute(self, operation: str, a: float, b: float) -> ToolResult:
             operations = {
                 "add": lambda x, y: x + y,

@@ -31,9 +31,10 @@ async def calculate(operation: str, a: float, b: float) -> ToolResult:
 
 ```python
 from tool_decorators import mcp_tool
+from base_tool import BaseTool, ToolResult
 
 @mcp_tool("string_utils", "String manipulation tools")
-class StringUtils:
+class StringUtils(BaseTool):
     async def execute(self, operation: str, text: str, **kwargs) -> ToolResult:
         result = ToolResult()
         if operation == "reverse":
