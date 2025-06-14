@@ -11,7 +11,7 @@ import random
 from typing import Optional
 
 sys.path.append('..')
-from base_tool import ToolResult
+from base_tool import ToolResult, BaseTool
 from tool_decorators import tool, mcp_tool, tool_method, MethodToolRegistry
 
 
@@ -48,7 +48,7 @@ async def reverse_text(text: str) -> ToolResult:
 
 # Pattern 2: Class-based tool with @mcp_tool decorator
 @mcp_tool("string_utils", "String manipulation utilities")
-class StringUtilsTool:
+class StringUtilsTool(BaseTool):
     """String manipulation tool using class decorator"""
     
     async def execute(self, operation: str, text: str, **kwargs) -> ToolResult:

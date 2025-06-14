@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-Plugin Manager - Dynamic tool discovery and loading system
+Enhanced Plugin Manager - Supports both traditional and decorator-based tools
 
-Automatically discovers and loads MCP tools from the tools/ directory.
-Provides error isolation and hot-reloading capabilities.
+Automatically discovers and loads MCP tools from multiple sources:
+- Traditional BaseTool subclasses  
+- @tool function decorators
+- @mcp_tool class decorators
+- @tool_method method decorators
 """
 import os
 import sys
@@ -15,17 +18,19 @@ from pathlib import Path
 from functools import lru_cache
 
 from base_tool import BaseTool, ToolError
+from tool_decorators import get_decorator_tools, register_tools_from_module
 
 
 class PluginManager:
     """
-    Manages dynamic loading and discovery of MCP tool plugins.
+    Enhanced plugin manager supporting multiple tool creation patterns.
     
     Features:
-    - Auto-discovery from tools/ directory
-    - Error isolation (failed plugins don't crash server)  
-    - Plugin validation and metadata extraction
-    - Hot-reloading support (future enhancement)
+    - Traditional BaseTool subclass discovery
+    - Decorator-based tool auto-registration
+    - Error isolation and validation
+    - Hot-reloading support (future)
+    - Unified tool registry
     """
     
     def __init__(self, tools_directory: str = "tools"):
@@ -35,7 +40,13 @@ class PluginManager:
         
     async def discover_and_load_tools(self) -> Dict[str, BaseTool]:
         """
-        Discover and load all valid tool plugins.
+        Discover and load all tools from multiple sources.
+        
+        Sources:
+        1. Traditional BaseTool subclasses in plugin files
+        2. @tool decorated functions
+        3. @mcp_tool decorated classes  
+        4. @tool_method decorated methods
         
         Returns:
             Dictionary mapping tool names to tool instances
@@ -51,17 +62,26 @@ class PluginManager:
         if tools_path not in sys.path:
             sys.path.insert(0, str(self.tools_directory.parent))
         
+        # Clear decorator registry to start fresh
+        from tool_decorators import clear_decorator_registry
+        clear_decorator_registry()
+        
+        # Load all Python files in tools directory
         python_files = list(self.tools_directory.glob("*.py"))
         python_files = [f for f in python_files if f.name != "__init__.py"]
         
         logging.info(f"📦 Found {len(python_files)} potential plugin files")
         
+        # Load each plugin file
         for plugin_file in python_files:
             try:
                 await self._load_plugin_file(plugin_file)
             except Exception as e:
                 logging.error(f"❌ Failed to load plugin {plugin_file.name}: {e}")
                 self.failed_plugins.append(plugin_file.name)
+        
+        # Add decorator-based tools to our registry
+        await self._load_decorator_tools()
         
         logging.info(f"✅ Successfully loaded {len(self.loaded_tools)} tools")
         if self.failed_plugins:
@@ -82,23 +102,51 @@ class PluginManager:
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             
-            # Find all BaseTool subclasses in the module
+            # Auto-register any decorator tools found in this module
+            register_tools_from_module(module, auto_register=True)
+            
+            # Find traditional BaseTool subclasses in the module
             tool_classes = self._find_tool_classes(module)
             
-            # Instantiate and register tools
+            # Instantiate and register traditional tools
             for tool_class in tool_classes:
                 tool_instance = tool_class()
                 
                 # Validate tool
                 self._validate_tool(tool_instance)
                 
-                # Register tool
+                # Register tool (check for conflicts)
+                if tool_instance.name in self.loaded_tools:
+                    logging.warning(f"⚠️  Tool name conflict: {tool_instance.name} (skipping duplicate)")
+                    continue
+                
                 self.loaded_tools[tool_instance.name] = tool_instance
-                logging.info(f"  ✓ Loaded tool: {tool_instance.name}")
+                logging.info(f"  ✓ Loaded traditional tool: {tool_instance.name}")
                 
         except Exception as e:
             logging.error(f"  ❌ Error loading {plugin_file.name}: {e}")
             raise
+    
+    async def _load_decorator_tools(self) -> None:
+        """Load tools from decorator registry"""
+        decorator_tools = get_decorator_tools()
+        
+        for name, tool in decorator_tools.items():
+            # Validate decorator tool
+            try:
+                self._validate_tool(tool)
+                
+                # Check for conflicts with traditional tools
+                if name in self.loaded_tools:
+                    logging.warning(f"⚠️  Tool name conflict: {name} (decorator vs traditional)")
+                    continue
+                
+                self.loaded_tools[name] = tool
+                logging.info(f"  ✓ Loaded decorator tool: {name}")
+                
+            except Exception as e:
+                logging.error(f"  ❌ Invalid decorator tool {name}: {e}")
+                self.failed_plugins.append(f"decorator:{name}")
     
     def _find_tool_classes(self, module: Any) -> List[Type[BaseTool]]:
         """Find all BaseTool subclasses in a module"""
@@ -111,7 +159,11 @@ class PluginManager:
             if (isinstance(obj, type) and 
                 issubclass(obj, BaseTool) and 
                 obj is not BaseTool):
-                tool_classes.append(obj)
+                
+                # Skip classes that were created by @mcp_tool decorator
+                # (they'll be handled by decorator registry)
+                if not hasattr(obj, '_decorator_created'):
+                    tool_classes.append(obj)
         
         return tool_classes
     
@@ -159,7 +211,7 @@ class PluginManager:
         tool = self.loaded_tools[tool_name]
         
         try:
-            logging.info(f"⚡ Executing tool: {tool_name}")
+            logging.info(f"⚡ Executing tool: {tool_name} (type: {type(tool).__name__})")
             result = await tool.execute(**arguments)
             
             if not hasattr(result, 'to_dict'):
@@ -184,30 +236,84 @@ class PluginManager:
             return {}
         
         tool = self.loaded_tools[tool_name]
+        tool_type = "decorator" if hasattr(tool, '_func') else "traditional"
+        
         return {
             "name": tool.name,
             "description": tool.description,
             "schema": tool.input_schema,
             "class": tool.__class__.__name__,
-            "module": tool.__class__.__module__
+            "module": tool.__class__.__module__,
+            "type": tool_type
+        }
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get detailed plugin manager statistics"""
+        traditional_tools = [name for name, tool in self.loaded_tools.items() 
+                           if not hasattr(tool, '_func')]
+        decorator_tools = [name for name, tool in self.loaded_tools.items() 
+                         if hasattr(tool, '_func')]
+        
+        return {
+            "total_tools": len(self.loaded_tools),
+            "traditional_tools": len(traditional_tools),
+            "decorator_tools": len(decorator_tools),
+            "failed_plugins": len(self.failed_plugins),
+            "tools_by_type": {
+                "traditional": traditional_tools,
+                "decorator": decorator_tools
+            },
+            "failed": self.failed_plugins
         }
 
 
-# Testing and validation
-async def test_plugin_manager():
-    """Test plugin manager with debug output"""
+# Enhanced testing
+async def test_enhanced_plugin_manager():
+    """Test the enhanced plugin manager"""
     manager = PluginManager()
     tools = await manager.discover_and_load_tools()
     
     print(f"🔧 Discovered tools: {list(tools.keys())}")
     
+    # Show statistics
+    stats = manager.get_stats()
+    print(f"\n📊 Plugin Manager Stats:")
+    print(f"  Total tools: {stats['total_tools']}")
+    print(f"  Traditional tools: {stats['traditional_tools']}")
+    print(f"  Decorator tools: {stats['decorator_tools']}")
+    print(f"  Failed plugins: {stats['failed_plugins']}")
+    
+    # Show tool details
+    print(f"\n📋 Tool Details:")
     for name, tool in tools.items():
-        print(f"\n📋 Tool: {name}")
-        print(f"   Description: {tool.description}")
-        print(f"   Schema: {tool.input_schema}")
+        info = manager.get_tool_info(name)
+        print(f"  • {name} ({info['type']}): {tool.description}")
+    
+    # Test a few tools
+    print(f"\n⚡ Testing tools:")
+    
+    try:
+        if "current_time" in tools:
+            result = await manager.execute_tool("current_time", {"format": "readable"})
+            print(f"  current_time: {result}")
+        
+        if "fibonacci" in tools:
+            result = await manager.execute_tool("fibonacci", {"n": 8})
+            print(f"  fibonacci: {result}")
+            
+        if "file_ops" in tools:
+            result = await manager.execute_tool("file_ops", {
+                "operation": "write", 
+                "path": "test_decorator.txt", 
+                "content": "Decorator tools work!"
+            })
+            print(f"  file_ops: {result}")
+            
+    except Exception as e:
+        print(f"  Error testing tools: {e}")
 
 
 if __name__ == "__main__":
     import asyncio
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(test_plugin_manager())
+    asyncio.run(test_enhanced_plugin_manager())

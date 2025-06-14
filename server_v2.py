@@ -7,48 +7,49 @@ No hardcoded tools - everything loaded from tools/ directory.
 """
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional, Callable, Awaitable
+import sys
 from dataclasses import dataclass, field
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
-from transport import StdioServerTransport, MCPRequest, MCPResponse
 from plugin_manager import PluginManager, ToolError
+from transport import MCPRequest, MCPResponse, StdioServerTransport
 
 
 class MCPServer:
     """
     Enhanced MCP server with plugin-based tool management.
-    
+
     Features:
     - Dynamic tool loading from tools/ directory
     - Zero hardcoded tools - fully plugin-driven
     - Error isolation and proper MCP error handling
     - Clean separation between server core and tools
     """
-    
+
     def __init__(self, name: str = "mcp-plugin-server", version: str = "2.0.0", tools_dir: str = "tools"):
         self.name = name
         self.version = version
         self.transport = StdioServerTransport()
         self.plugin_manager = PluginManager(tools_dir)
         self.initialized = False
-        
+
         # Set up transport handler
         self.transport.set_request_handler(self._handle_request)
-    
+
     async def start(self) -> None:
         """Start the MCP server with plugin discovery"""
         logging.info(f"🚀 Starting MCP server: {self.name} v{self.version}")
-        
+
         # Load plugins
         tools = await self.plugin_manager.discover_and_load_tools()
         logging.info(f"🔧 Loaded {len(tools)} tools: {list(tools.keys())}")
-        
+
         if not tools:
             logging.warning("⚠️  No tools loaded! Check tools/ directory")
-        
+
         # Start transport
         await self.transport.start()
-    
+
     async def _handle_request(self, request: MCPRequest) -> MCPResponse:
         """Route MCP requests to appropriate handlers"""
         try:
@@ -71,11 +72,11 @@ class MCPServer:
                 id=request.id,
                 error={"code": -32603, "message": f"Internal error: {str(e)}"}
             )
-    
+
     async def _handle_initialize(self, request: MCPRequest) -> MCPResponse:
         """Handle MCP initialize request"""
         logging.info("🔌 Client initializing...")
-        
+
         # Validate protocol version
         client_version = request.params.get("protocolVersion")
         if not client_version:
@@ -83,7 +84,7 @@ class MCPServer:
                 id=request.id,
                 error={"code": -32602, "message": "Missing protocolVersion"}
             )
-        
+
         # Return server capabilities and info
         result = {
             "protocolVersion": "2024-11-05",
@@ -96,16 +97,16 @@ class MCPServer:
                 "description": f"Plugin-based MCP server with {len(self.plugin_manager.loaded_tools)} tools"
             }
         }
-        
+
         return MCPResponse(id=request.id, result=result)
-    
+
     async def _handle_initialized(self, request: MCPRequest) -> MCPResponse:
         """Handle initialized notification"""
         self.initialized = True
         logging.info("✅ Client initialization complete")
         # Initialized is a notification, no response needed
         return MCPResponse(id=None)  # Will be ignored by transport
-    
+
     async def _handle_tools_list(self, request: MCPRequest) -> MCPResponse:
         """Handle tools/list request"""
         if not self.initialized:
@@ -113,16 +114,16 @@ class MCPServer:
                 id=request.id,
                 error={"code": -32002, "message": "Server not initialized"}
             )
-        
+
         # Get tools from plugin manager
         tools_registry = self.plugin_manager.get_tool_registry()
         tools_list = list(tools_registry.values())
-        
+
         result = {"tools": tools_list}
         logging.debug(f"📋 Returning {len(tools_list)} tools")
-        
+
         return MCPResponse(id=request.id, result=result)
-    
+
     async def _handle_tools_call(self, request: MCPRequest) -> MCPResponse:
         """Handle tools/call request"""
         if not self.initialized:
@@ -130,21 +131,21 @@ class MCPServer:
                 id=request.id,
                 error={"code": -32002, "message": "Server not initialized"}
             )
-        
+
         tool_name = request.params.get("name")
         arguments = request.params.get("arguments", {})
-        
+
         if not tool_name:
             return MCPResponse(
                 id=request.id,
                 error={"code": -32602, "message": "Missing tool name"}
             )
-        
+
         try:
             # Execute tool via plugin manager
             result = await self.plugin_manager.execute_tool(tool_name, arguments)
             return MCPResponse(id=request.id, result=result)
-            
+
         except ToolError as e:
             # Tool-specific errors with proper codes
             return MCPResponse(
@@ -157,7 +158,7 @@ class MCPServer:
                 id=request.id,
                 error={"code": -32603, "message": f"Internal tool error: {str(e)}"}
             )
-    
+
     def get_server_stats(self) -> Dict[str, Any]:
         """Get server statistics for debugging"""
         return {
@@ -174,7 +175,7 @@ class MCPServer:
 async def main():
     """Main server entry point with enhanced logging"""
     server = MCPServer()
-    
+
     try:
         await server.start()
     except KeyboardInterrupt:
@@ -185,13 +186,11 @@ async def main():
 
 
 if __name__ == "__main__":
-    # Enhanced logging for development
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        stream=sys.stderr  # Critical: log to stderr, not stdout
     )
-    
-    print("🚀 Starting Enhanced MCP Server with Plugin System")
-    print("🔧 Loading tools from tools/ directory...")
-    
+
+
     asyncio.run(main())
