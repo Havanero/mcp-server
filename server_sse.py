@@ -7,8 +7,8 @@ import asyncio
 import logging
 import sys
 
-from sse_transport import SSEMCPServer
 from plugin_manager import PluginManager
+from sse_transport import SSEMCPServer
 
 
 async def main():
@@ -16,14 +16,14 @@ async def main():
     # Configure logging
     logging.basicConfig(
         level=logging.DEBUG,  # Changed to DEBUG for more info
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        stream=sys.stderr
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        stream=sys.stderr,
     )
-    
+
     # Create plugin manager and server
     plugin_manager = PluginManager("tools")
     server = SSEMCPServer(plugin_manager, host="localhost", port=8081)
-    
+
     print("🌊 Starting SSE MCP Server")
     print("📡 URL: http://localhost:8081")
     print("🔗 Streaming endpoints:")
@@ -32,7 +32,7 @@ async def main():
     print("   • GET /stream/mcp?method=tools/list")
     print("📋 Documentation: http://localhost:8081/")
     print("👋 Press Ctrl+C to stop")
-    
+
     try:
         await server.start()
     except KeyboardInterrupt:

@@ -8,16 +8,14 @@ import asyncio
 import sys
 from typing import Any, Dict, Optional
 
-sys.path.append('..')
+sys.path.append("..")
 from base_tool import ToolError, ToolResult
 from tool_decorators import MethodToolRegistry, tool, tool_method
 
 
 @tool("opensearch", "Search regulations documents from OpenSearch")
 async def search_regulations(
-    query: str,
-    index: str = "regulations",
-    size: int = 10
+    query: str, index: str = "regulations", size: int = 10
 ) -> ToolResult:
     """
     Search for regulations documents in OpenSearch.
@@ -42,9 +40,9 @@ async def search_regulations(
                         "title": "GDPR Compliance Guidelines",
                         "content": "General Data Protection Regulation compliance requirements...",
                         "category": "privacy",
-                        "effective_date": "2018-05-25"
+                        "effective_date": "2018-05-25",
                     },
-                    "_score": 0.95
+                    "_score": 0.95,
                 },
                 {
                     "_id": "reg002",
@@ -52,32 +50,23 @@ async def search_regulations(
                         "title": "Data Processing Standards",
                         "content": "Standards for processing personal data in compliance...",
                         "category": "data-protection",
-                        "effective_date": "2018-05-25"
+                        "effective_date": "2018-05-25",
                     },
-                    "_score": 0.87
-                }
-            ]
-        }
+                    "_score": 0.87,
+                },
+            ],
+        },
     }
 
-    result.add_text(f"🔍 OpenSearch Query: '{query}'")
-    result.add_text(f"📊 Index: {index}, Size: {size}")
-    result.add_text(f"⏱️  Took: {mock_response['took']}ms")
-    result.add_text(f"📈 Total hits: {mock_response['hits']['total']['value']}")
+    result.add_json(mock_response)
 
-    result.add_text(f"\n📋 Results:")
-    for i, hit in enumerate(mock_response['hits']['hits'], 1):
-        source = hit['_source']
-        result.add_text(f"  {i}. {source['title']} (Score: {hit['_score']})")
-        result.add_text(f"     Category: {source['category']}")
-        result.add_text(f"     Date: {source['effective_date']}")
-
-    # Also return structured data
-    result.add_json({
-        "query": query,
-        "results": mock_response['hits']['hits'],
-        "total": mock_response['hits']['total']['value']
-    })
+    result.add_json(
+        {
+            "query": query,
+            "results": mock_response["hits"]["hits"],
+            "total": mock_response["hits"]["total"]["value"],
+        }
+    )
 
     return result
 
@@ -98,7 +87,7 @@ class DatabaseTools:
                 "number_of_nodes": 3,
                 "active_primary_shards": 15,
                 "active_shards": 30,
-                "unassigned_shards": 0
+                "unassigned_shards": 0,
             }
 
             result.add_text(f"🏥 {database.title()} Health Check")
@@ -123,12 +112,14 @@ class DatabaseTools:
             {"name": "regulations", "docs": 1250, "size": "2.1mb"},
             {"name": "policies", "docs": 890, "size": "1.5mb"},
             {"name": "guidelines", "docs": 450, "size": "800kb"},
-            {"name": "standards", "docs": 320, "size": "600kb"}
+            {"name": "standards", "docs": 320, "size": "600kb"},
         ]
 
         # Filter by pattern (simple wildcard matching)
         if pattern != "*":
-            filtered_indices = [idx for idx in mock_indices if pattern.lower() in idx['name'].lower()]
+            filtered_indices = [
+                idx for idx in mock_indices if pattern.lower() in idx["name"].lower()
+            ]
         else:
             filtered_indices = mock_indices
 
@@ -147,21 +138,15 @@ class DatabaseTools:
         self,
         search_terms: str,
         filters: Optional[str] = None,
-        sort_by: str = "relevance"
+        sort_by: str = "relevance",
     ) -> ToolResult:
         """Build a properly formatted database query"""
         result = ToolResult()
 
         # Build query structure
         query_structure = {
-            "query": {
-                "bool": {
-                    "must": [
-                        {"match": {"content": search_terms}}
-                    ]
-                }
-            },
-            "sort": []
+            "query": {"bool": {"must": [{"match": {"content": search_terms}}]}},
+            "sort": [],
         }
 
         # Add filters if provided
