@@ -15,19 +15,32 @@ from tool_decorators import MethodToolRegistry, tool, tool_method
 
 @tool("opensearch", "Search regulations documents from OpenSearch")
 async def search_regulations(
-    query: str, index: str = "regulations", size: int = 10
+    query: dict, index: str = "regulations", size: int = 10
 ) -> ToolResult:
     """
     Search for regulations documents in OpenSearch.
 
     Args:
-        query: Search query string
-        index: Index name to search (default: regulations)
-        size: Number of results to return (default: 10)
+        query: OpenSearch query dictionary. REQUIRED. Must be a valid OpenSearch query object.
+               Examples:
+               - Simple text search: {"match": {"content": "GDPR compliance"}}
+               - Multi-field search: {"multi_match": {"query": "data protection", "fields": ["title", "content"]}}
+               - Boolean search: {"bool": {"must": [{"match": {"content": "privacy"}}, {"term": {"category": "regulation"}}]}}
+               - Wildcard search: {"wildcard": {"title": "*data*"}}
+               - Range search: {"range": {"effective_date": {"gte": "2020-01-01"}}}
+               For user queries like "search for X", convert to: {"match": {"content": "X"}}
+
+        index: Database index or collection name (default: regulations)
+               Available indices: regulations, policies, guidelines, standards
+
+        size: Number of results to return (default: 10, max: 100)
+
+    Returns:
+        ToolResult containing search results with document metadata, scores, and highlights.
     """
-    result = ToolResult()
 
     # Mock OpenSearch response (replace with actual OpenSearch client)
+    result = ToolResult()
     mock_response = {
         "took": 5,
         "timed_out": False,

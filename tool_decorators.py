@@ -78,7 +78,7 @@ class DecoratorTool(BaseTool):
             raise ToolError(f"Function tool '{self.name}' failed: {str(e)}")
     
     def _generate_function_schema(self, func: Callable) -> Dict[str, Any]:
-        """Generate schema from function signature"""
+        """Generate schema from function signature with proper parameter extraction"""
         sig = inspect.signature(func)
         type_hints = get_type_hints(func)
         
@@ -86,13 +86,23 @@ class DecoratorTool(BaseTool):
         required = []
         
         for param_name, param in sig.parameters.items():
+            # Skip 'self' parameter for bound methods
+            if param_name == "self":
+                continue
+                
             param_type = type_hints.get(param_name, str)
             json_type = self._python_type_to_json_type(param_type)
             
-            # Add description from docstring if available
-            if func.__doc__:
-                # Try to extract parameter description from docstring
-                json_type["description"] = f"Parameter: {param_name}"
+            # Extract description from docstring
+            description = self._extract_param_description(func, param_name)
+            if description:
+                json_type["description"] = description
+            else:
+                json_type["description"] = self._generate_param_description(param_name, param_type)
+            
+            # Add default value information
+            if param.default != inspect.Parameter.empty:
+                json_type["description"] += f" (default: {param.default})"
             
             properties[param_name] = json_type
             
@@ -102,7 +112,8 @@ class DecoratorTool(BaseTool):
         
         schema = {
             "type": "object", 
-            "properties": properties
+            "properties": properties,
+            "additionalProperties": False  # MCP compliance
         }
         
         if required:
@@ -112,7 +123,7 @@ class DecoratorTool(BaseTool):
     
     @staticmethod
     def _python_type_to_json_type(python_type: type) -> Dict[str, Any]:
-        """Convert Python type to JSON schema type"""
+        """Convert Python type to JSON schema type with enhanced handling"""
         from typing import get_origin, get_args
         
         origin = get_origin(python_type)
@@ -122,22 +133,84 @@ class DecoratorTool(BaseTool):
             args = get_args(python_type)
             if len(args) == 2 and type(None) in args:
                 non_none_type = next(arg for arg in args if arg is not type(None))
-                base_schema = DecoratorTool._python_type_to_json_type(non_none_type)
-                base_schema["nullable"] = True
-                return base_schema
+                return DecoratorTool._python_type_to_json_type(non_none_type)
         
-        # Basic type mapping
+        # Enhanced type mapping with proper dict handling
         type_mapping = {
             str: {"type": "string"},
             int: {"type": "integer"},
             float: {"type": "number"}, 
             bool: {"type": "boolean"},
             list: {"type": "array"},
-            dict: {"type": "object"}
+            dict: {"type": "object"},  # Ensure dict maps to object
+            type(None): {"type": "null"}
         }
         
         base_type = origin or python_type
-        return type_mapping.get(base_type, {"type": "string"})
+        result = type_mapping.get(base_type, {"type": "string"})
+        
+        # Extra safety for dict types
+        if python_type == dict or base_type == dict or str(python_type) == "<class 'dict'>":
+            result = {"type": "object"}
+        
+        return result
+    
+    def _extract_param_description(self, func: Callable, param_name: str) -> str:
+        """Extract parameter description from function docstring"""
+        if not func.__doc__:
+            return ""
+        
+        lines = func.__doc__.split('\n')
+        in_args_section = False
+        
+        for line in lines:
+            line = line.strip()
+            if line.startswith('Args:'):
+                in_args_section = True
+                continue
+            
+            if in_args_section:
+                if line.startswith(param_name + ':'):
+                    desc = line.split(':', 1)[1].strip()
+                    return desc
+                elif line and not line.startswith(' ') and line:
+                    # End of args section
+                    break
+        
+        return ""
+    
+    def _generate_param_description(self, param_name: str, param_type: type) -> str:
+        """Generate intelligent parameter description based on name and type"""
+        type_name = getattr(param_type, '__name__', str(param_type))
+        
+        # Context-aware descriptions for common parameter names
+        descriptions = {
+            'query': f'Search query or filter criteria ({type_name})',
+            'index': f'Database index or collection name ({type_name})',
+            'size': f'Number of results to return ({type_name})',
+            'limit': f'Maximum number of items to return ({type_name})',
+            'offset': f'Number of items to skip ({type_name})',
+            'page': f'Page number for pagination ({type_name})',
+            'sort': f'Sort field or criteria ({type_name})',
+            'filter': f'Filter criteria ({type_name})',
+            'format': f'Output format ({type_name})',
+            'timeout': f'Timeout in seconds ({type_name})',
+            'database': f'Database name ({type_name})',
+            'collection': f'Collection or table name ({type_name})',
+            'pattern': f'Search pattern ({type_name})',
+            'text': f'Text content ({type_name})',
+            'data': f'Data payload ({type_name})',
+            'config': f'Configuration options ({type_name})',
+        }
+        
+        # Check for common patterns in parameter name
+        param_lower = param_name.lower()
+        for key, desc in descriptions.items():
+            if key in param_lower:
+                return desc
+        
+        # Default description
+        return f"{param_name.replace('_', ' ').title()} ({type_name})"
 
 
 # 1. Function Decorator - @tool
