@@ -93,16 +93,11 @@ class DecoratorTool(BaseTool):
             param_type = type_hints.get(param_name, str)
             json_type = self._python_type_to_json_type(param_type)
             
-            # Extract description from docstring
+            # ONLY extract from docstring - no fallbacks or additions
             description = self._extract_param_description(func, param_name)
             if description:
                 json_type["description"] = description
-            else:
-                json_type["description"] = self._generate_param_description(param_name, param_type)
-            
-            # Add default value information
-            if param.default != inspect.Parameter.empty:
-                json_type["description"] += f" (default: {param.default})"
+            # If no docstring description, leave description empty
             
             properties[param_name] = json_type
             
@@ -113,7 +108,8 @@ class DecoratorTool(BaseTool):
         schema = {
             "type": "object", 
             "properties": properties,
-            "additionalProperties": False  # MCP compliance
+            "additionalProperties": False,  # MCP compliance - strict schema
+            "strict": True  # Enable strict mode for better validation
         }
         
         if required:
@@ -162,56 +158,51 @@ class DecoratorTool(BaseTool):
         
         lines = func.__doc__.split('\n')
         in_args_section = False
+        description_lines = []
+        current_param = None
         
         for line in lines:
-            line = line.strip()
-            if line.startswith('Args:'):
+            line_stripped = line.strip()
+            
+            if line_stripped.startswith('Args:'):
                 in_args_section = True
                 continue
             
             if in_args_section:
-                if line.startswith(param_name + ':'):
-                    desc = line.split(':', 1)[1].strip()
-                    return desc
-                elif line and not line.startswith(' ') and line:
-                    # End of args section
+                # Check if this is the start of a new parameter
+                if line_stripped and ':' in line_stripped and not line_stripped.startswith(' '):
+                    # If we were collecting for our target param, we're done
+                    if current_param == param_name and description_lines:
+                        break
+                    
+                    # Check if this is our target parameter
+                    if line_stripped.startswith(param_name + ':'):
+                        current_param = param_name
+                        desc = line_stripped.split(':', 1)[1].strip()
+                        if desc:
+                            description_lines = [desc]
+                        else:
+                            description_lines = []
+                    else:
+                        current_param = line_stripped.split(':')[0].strip()
+                        description_lines = []
+                
+                # If we're collecting for our parameter, add continuation lines
+                elif current_param == param_name and line_stripped:
+                    # Check if this is a new section (Returns:, etc.)
+                    if line_stripped.endswith(':') and not line_stripped.startswith(' '):
+                        break
+                    description_lines.append(line_stripped)
+                
+                # Stop if we hit another section
+                elif line_stripped and not line_stripped.startswith(' ') and line_stripped.endswith(':'):
                     break
+        
+        if current_param == param_name and description_lines:
+            return ' '.join(description_lines)
         
         return ""
     
-    def _generate_param_description(self, param_name: str, param_type: type) -> str:
-        """Generate intelligent parameter description based on name and type"""
-        type_name = getattr(param_type, '__name__', str(param_type))
-        
-        # Context-aware descriptions for common parameter names
-        descriptions = {
-            'query': f'Search query or filter criteria ({type_name})',
-            'index': f'Database index or collection name ({type_name})',
-            'size': f'Number of results to return ({type_name})',
-            'limit': f'Maximum number of items to return ({type_name})',
-            'offset': f'Number of items to skip ({type_name})',
-            'page': f'Page number for pagination ({type_name})',
-            'sort': f'Sort field or criteria ({type_name})',
-            'filter': f'Filter criteria ({type_name})',
-            'format': f'Output format ({type_name})',
-            'timeout': f'Timeout in seconds ({type_name})',
-            'database': f'Database name ({type_name})',
-            'collection': f'Collection or table name ({type_name})',
-            'pattern': f'Search pattern ({type_name})',
-            'text': f'Text content ({type_name})',
-            'data': f'Data payload ({type_name})',
-            'config': f'Configuration options ({type_name})',
-        }
-        
-        # Check for common patterns in parameter name
-        param_lower = param_name.lower()
-        for key, desc in descriptions.items():
-            if key in param_lower:
-                return desc
-        
-        # Default description
-        return f"{param_name.replace('_', ' ').title()} ({type_name})"
-
 
 # 1. Function Decorator - @tool
 def tool(name: str, description: str, auto_register: bool = True):
@@ -388,9 +379,10 @@ def list_decorator_tools() -> Dict[str, str]:
 
 
 def clear_decorator_registry():
-    """Clear the decorator tool registry (useful for testing)"""
+    """Clear the decorator tool registry (useful for testing and development)"""
     global _DECORATOR_TOOL_REGISTRY
     _DECORATOR_TOOL_REGISTRY.clear()
+    logging.info("🔄 Cleared decorator tool registry")
 
 
 # Example usage patterns

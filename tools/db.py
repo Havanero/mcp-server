@@ -5,39 +5,45 @@ Database Tools - OpenSearch and database connectivity tools
 Demonstrates database integration patterns with proper error handling.
 """
 import asyncio
+# Force fresh import
+import importlib
 import sys
 from typing import Any, Dict, Optional
 
 sys.path.append("..")
 from base_tool import ToolError, ToolResult
-from tool_decorators import MethodToolRegistry, tool, tool_method
+# Clear any cached registrations
+from tool_decorators import (MethodToolRegistry, clear_decorator_registry,
+                             tool, tool_method)
+
+clear_decorator_registry()
 
 
-@tool("opensearch", "Search regulations documents from OpenSearch")
+@tool("opensearch", "Search and retrieve regulation documents - use this tool when user asks to search, find, or get documents")
 async def search_regulations(
-    query: dict, index: str = "regulations", size: int = 10
+    query: Dict[str, Any], index: str = "regulations", size: int = 10
 ) -> ToolResult:
     """
-    Search for regulations documents in OpenSearch.
+    Search for regulations documents in OpenSearch. Use this tool when users want to search for, find, or retrieve regulation documents.
 
     Args:
-        query: OpenSearch query dictionary. REQUIRED. Must be a valid OpenSearch query object.
-               Examples:
-               - Simple text search: {"match": {"content": "GDPR compliance"}}
-               - Multi-field search: {"multi_match": {"query": "data protection", "fields": ["title", "content"]}}
-               - Boolean search: {"bool": {"must": [{"match": {"content": "privacy"}}, {"term": {"category": "regulation"}}]}}
-               - Wildcard search: {"wildcard": {"title": "*data*"}}
-               - Range search: {"range": {"effective_date": {"gte": "2020-01-01"}}}
-               For user queries like "search for X", convert to: {"match": {"content": "X"}}
+        query: OpenSearch query object. For general document searches use {'query': {'match_all': {}}}. For specific searches use {'query': {'match': {'content': 'search terms'}}}. When user asks for "regulation documents" or "my documents" without specific terms, use match_all query.
 
-        index: Database index or collection name (default: regulations)
-               Available indices: regulations, policies, guidelines, standards
+        index: Database index name (default: regulations). Available: regulations, policies, guidelines, standards
 
         size: Number of results to return (default: 10, max: 100)
 
     Returns:
         ToolResult containing search results with document metadata, scores, and highlights.
     """
+    
+    # If query is empty or user asks for general documents, default to match_all
+    if not query or (isinstance(query, dict) and not query):
+        query = {"query": {"match_all": {}}}
+    
+    # If user provides simple string, convert to proper query
+    if isinstance(query, str):
+        query = {"query": {"match": {"content": query}}}
 
     # Mock OpenSearch response (replace with actual OpenSearch client)
     result = ToolResult()
